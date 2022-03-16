@@ -1,0 +1,32 @@
+<!--
+  Launch  · DWM1001 nodes visualization
+          · TF between /world and /map
+          · Map server
+ -->
+
+<launch>
+  <arg name="server" default="192.168.0.8"/>
+
+  <!-- World to map TF --> 
+  <node pkg="tf" type="static_transform_publisher" name="optitrack_to_map" args="3.20 -1.20 0.0 -1.5707 0.0 0.0 /map /optitrack 1"/>
+
+  <!-- VRPN client --> 
+  <node pkg="vrpn_client_ros" type="vrpn_client_node" name="optitrack" output="screen">
+    <rosparam subst_value="true">
+      server: $(arg server)
+      port: 3883
+
+      update_frequency: 120.0
+      frame_id: optitrack
+
+      # Use the VRPN server's time, or the client's ROS time.
+      use_server_time: false
+      broadcast_tf: true
+
+      # Must either specify refresh frequency > 0.0, or a list of trackers to create
+      refresh_tracker_frequency: 1.0
+      #trackers:
+      #- kobuki_c
+    </rosparam>
+  </node>
+</launch>
