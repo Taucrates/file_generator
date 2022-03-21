@@ -1,12 +1,14 @@
 <launch>
-  <arg name="get_odom" default="True"/>  <!-- 0 == odom(default) / 1 == amcl / 2 == optitrack / 3 == all methods -->
+  <arg name="get_odom" default="True"/>  
   <arg name="get_amcl" default="False"/>
   <arg name="get_optitrack" default="False"/>
+  <arg name="file_format" default=".csv"/>
 
   <!-- Pose File Generator -->
   <node pkg="file_generator" type="pose_file_generator" name="pose_file_generator" output="screen" >
       <param name="get_odom" type="bool" value="$(arg get_odom)" />
       <param name="get_amcl" type="bool" value="$(arg get_amcl)" />
       <param name="get_optitrack" type="bool" value="$(arg get_optitrack)" />
+      <param name="file_format" type="string" value="$(arg file_format)" />
   </node>
 </launch>

@@ -10,6 +10,8 @@
 #include "nav_msgs/Odometry.h"
 #include "geometry_msgs/PoseWithCovarianceStamped.h"
 
+#include <fuzzymar_multi_robot/time_task.h>
+
 #include <tf2_ros/transform_listener.h> 
 #include <tf2_ros/buffer.h> 
 #include <geometry_msgs/TransformStamped.h>
@@ -35,6 +37,12 @@ struct Pose {
   geometry_msgs::Pose pose;
 };
 
+struct TaskEnd {
+  int id_task;
+  double time_completion;
+};
+
+// ODOM
 Pose actual_pose_a;
 bool pose_a = false;
 
@@ -82,8 +90,6 @@ bool optitrack_d = false;
 Pose actual_optitrack_e;
 bool optitrack_e = false;
 
-int pose_information = 0;  // 0 == odom(default) / 1 == amcl / 2 == optitrack / 3 == all methods
-
 bool get_odom = true;
 bool get_amcl = false;
 bool get_optitrack = false;
@@ -92,34 +98,50 @@ char* char_arr;
 char* char_odom;
 char* char_amcl;
 char* char_optitrack;
+char* char_mission;
 
 double init_time;
+bool start_mission = false;
+bool task_end = false;
+TaskEnd aux_task_end;
 
 std::string folder_direction = "/home/tonitauler/catkin_ws/src/file_generator/data";
 std::string folder_name = "pere";
 std::string odom_folder = "odom";
 std::string amcl_folder = "amcl";
+std::string mission_folder = "mission";
 std::string optitrack_folder = "optitrack";
+std::string file_format = ".txt"; // default .txt
 
 // FUNCTIONS
 double getYaw(Pose pose);
 std::string current_date();
+void writeFile(bool need_transform, Pose actual_pose, bool* open_file, std::ofstream* outfile, tf2_ros::Buffer* tfBuffer, tf2_ros::TransformListener* tfListener/*(tf2_ros::Buffer* tfBuffer)*/, std::string file_name, std::string map_frame, std::string loc_frame);
+Pose updatePosition(const nav_msgs::Odometry::ConstPtr& pose);
+Pose updatePositionAMCL(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose);
+Pose updatePositionOptitrack(const geometry_msgs::PoseStamped::ConstPtr& pose);
+
+void timeInfoCallback(const fuzzymar_multi_robot::time_task::ConstPtr& msg)
+{
+ 
+  if(msg->id_task == 0)
+  {
+    init_time = msg->sec + (msg->nsec/1000000000.0);
+    printf("Mission starts at: %f\n", init_time);
+    start_mission = true;
+  } else {
+    printf("Task_%i finish at sec: %f nsec: %f\n", msg->id_task, double(msg->sec), double(msg->nsec));
+    aux_task_end.id_task = msg->id_task;
+    aux_task_end.time_completion = (msg->sec + (msg->nsec/1000000000.0)) - init_time;
+    task_end = true;
+  }
+
+}
 
 void poseACallback(const nav_msgs::Odometry::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_pose_a.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_pose_a.pose.position.x = pose->pose.pose.position.x;
-  actual_pose_a.pose.position.y = pose->pose.pose.position.y;
-  actual_pose_a.pose.position.z = pose->pose.pose.position.z;
-
-  actual_pose_a.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_pose_a.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_pose_a.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_pose_a.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_pose_a = updatePosition(pose);
 
   pose_a = true;
 }
@@ -127,37 +149,15 @@ void poseACallback(const nav_msgs::Odometry::ConstPtr& pose)
 void poseBCallback(const nav_msgs::Odometry::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_pose_b.time = sec + (nsec / 1000000000) - init_time;
+  actual_pose_b = updatePosition(pose);
 
-  actual_pose_b.pose.position.x = pose->pose.pose.position.x;
-  actual_pose_b.pose.position.y = pose->pose.pose.position.y;
-  actual_pose_b.pose.position.z = pose->pose.pose.position.z;
-
-  actual_pose_b.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_pose_b.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_pose_b.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_pose_b.pose.orientation.w = pose->pose.pose.orientation.w;
-  
   pose_b = true;
 }
 
 void poseCCallback(const nav_msgs::Odometry::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_pose_c.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_pose_c.pose.position.x = pose->pose.pose.position.x;
-  actual_pose_c.pose.position.y = pose->pose.pose.position.y;
-  actual_pose_c.pose.position.z = pose->pose.pose.position.z;
-
-  actual_pose_c.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_pose_c.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_pose_c.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_pose_c.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_pose_c = updatePosition(pose);
   
   pose_c = true;
 }
@@ -165,37 +165,15 @@ void poseCCallback(const nav_msgs::Odometry::ConstPtr& pose)
 void poseDCallback(const nav_msgs::Odometry::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_pose_d.time = sec + (nsec / 1000000000) - init_time;
-  
-  actual_pose_d.pose.position.x = pose->pose.pose.position.x;
-  actual_pose_d.pose.position.y = pose->pose.pose.position.y;
-  actual_pose_d.pose.position.z = pose->pose.pose.position.z;
+  actual_pose_d = updatePosition(pose);
 
-  actual_pose_d.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_pose_d.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_pose_d.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_pose_d.pose.orientation.w = pose->pose.pose.orientation.w;
-  
   pose_d = true;
 }
 
 void poseECallback(const nav_msgs::Odometry::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_pose_e.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_pose_e.pose.position.x = pose->pose.pose.position.x;
-  actual_pose_e.pose.position.y = pose->pose.pose.position.y;
-  actual_pose_e.pose.position.z = pose->pose.pose.position.z;
-
-  actual_pose_e.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_pose_e.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_pose_e.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_pose_e.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_pose_e = updatePosition(pose);
   
   pose_e = true;
 }
@@ -203,18 +181,7 @@ void poseECallback(const nav_msgs::Odometry::ConstPtr& pose)
 void amclACallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_amcl_a.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_amcl_a.pose.position.x = pose->pose.pose.position.x;
-  actual_amcl_a.pose.position.y = pose->pose.pose.position.y;
-  actual_amcl_a.pose.position.z = pose->pose.pose.position.z;
-
-  actual_amcl_a.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_amcl_a.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_amcl_a.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_amcl_a.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_amcl_a = updatePositionAMCL(pose);
   
   amcl_a = true;
 }
@@ -222,18 +189,7 @@ void amclACallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pos
 void amclBCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_amcl_b.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_amcl_b.pose.position.x = pose->pose.pose.position.x;
-  actual_amcl_b.pose.position.y = pose->pose.pose.position.y;
-  actual_amcl_b.pose.position.z = pose->pose.pose.position.z;
-
-  actual_amcl_b.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_amcl_b.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_amcl_b.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_amcl_b.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_amcl_b = updatePositionAMCL(pose);
   
   amcl_b = true;
 }
@@ -241,18 +197,7 @@ void amclBCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pos
 void amclCCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_amcl_c.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_amcl_c.pose.position.x = pose->pose.pose.position.x;
-  actual_amcl_c.pose.position.y = pose->pose.pose.position.y;
-  actual_amcl_c.pose.position.z = pose->pose.pose.position.z;
-
-  actual_amcl_c.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_amcl_c.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_amcl_c.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_amcl_c.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_amcl_c = updatePositionAMCL(pose);
   
   amcl_c = true;
 }
@@ -260,18 +205,7 @@ void amclCCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pos
 void amclDCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_amcl_d.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_amcl_d.pose.position.x = pose->pose.pose.position.x;
-  actual_amcl_d.pose.position.y = pose->pose.pose.position.y;
-  actual_amcl_d.pose.position.z = pose->pose.pose.position.z;
-
-  actual_amcl_d.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_amcl_d.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_amcl_d.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_amcl_d.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_amcl_d = updatePositionAMCL(pose);
   
   amcl_d = true;
 }
@@ -279,18 +213,7 @@ void amclDCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pos
 void amclECallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_amcl_e.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_amcl_e.pose.position.x = pose->pose.pose.position.x;
-  actual_amcl_e.pose.position.y = pose->pose.pose.position.y;
-  actual_amcl_e.pose.position.z = pose->pose.pose.position.z;
-
-  actual_amcl_e.pose.orientation.x = pose->pose.pose.orientation.x;
-  actual_amcl_e.pose.orientation.y = pose->pose.pose.orientation.y;
-  actual_amcl_e.pose.orientation.z = pose->pose.pose.orientation.z;
-  actual_amcl_e.pose.orientation.w = pose->pose.pose.orientation.w;
+  actual_amcl_e = updatePositionAMCL(pose);
   
   amcl_e = true;
 }
@@ -298,18 +221,7 @@ void amclECallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pos
 void optitrackACallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_optitrack_a.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_optitrack_a.pose.position.x = pose->pose.position.x;
-  actual_optitrack_a.pose.position.y = pose->pose.position.y;
-  actual_optitrack_a.pose.position.z = pose->pose.position.z;
-
-  actual_optitrack_a.pose.orientation.x = pose->pose.orientation.x;
-  actual_optitrack_a.pose.orientation.y = pose->pose.orientation.y;
-  actual_optitrack_a.pose.orientation.z = pose->pose.orientation.z;
-  actual_optitrack_a.pose.orientation.w = pose->pose.orientation.w;
+  actual_optitrack_a = updatePositionOptitrack(pose);
   
   optitrack_a = true;
 }
@@ -317,18 +229,7 @@ void optitrackACallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 void optitrackBCallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_optitrack_b.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_optitrack_b.pose.position.x = pose->pose.position.x;
-  actual_optitrack_b.pose.position.y = pose->pose.position.y;
-  actual_optitrack_b.pose.position.z = pose->pose.position.z;
-
-  actual_optitrack_b.pose.orientation.x = pose->pose.orientation.x;
-  actual_optitrack_b.pose.orientation.y = pose->pose.orientation.y;
-  actual_optitrack_b.pose.orientation.z = pose->pose.orientation.z;
-  actual_optitrack_b.pose.orientation.w = pose->pose.orientation.w;
+  actual_optitrack_b = updatePositionOptitrack(pose);
   
   optitrack_b = true;
 }
@@ -336,18 +237,7 @@ void optitrackBCallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 void optitrackCCallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_optitrack_c.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_optitrack_c.pose.position.x = pose->pose.position.x;
-  actual_optitrack_c.pose.position.y = pose->pose.position.y;
-  actual_optitrack_c.pose.position.z = pose->pose.position.z;
-
-  actual_optitrack_c.pose.orientation.x = pose->pose.orientation.x;
-  actual_optitrack_c.pose.orientation.y = pose->pose.orientation.y;
-  actual_optitrack_c.pose.orientation.z = pose->pose.orientation.z;
-  actual_optitrack_c.pose.orientation.w = pose->pose.orientation.w;
+  actual_optitrack_c = updatePositionOptitrack(pose);
   
   optitrack_c = true;
 }
@@ -355,18 +245,7 @@ void optitrackCCallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 void optitrackDCallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_optitrack_d.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_optitrack_d.pose.position.x = pose->pose.position.x;
-  actual_optitrack_d.pose.position.y = pose->pose.position.y;
-  actual_optitrack_d.pose.position.z = pose->pose.position.z;
-
-  actual_optitrack_d.pose.orientation.x = pose->pose.orientation.x;
-  actual_optitrack_d.pose.orientation.y = pose->pose.orientation.y;
-  actual_optitrack_d.pose.orientation.z = pose->pose.orientation.z;
-  actual_optitrack_d.pose.orientation.w = pose->pose.orientation.w;
+  actual_optitrack_d = updatePositionOptitrack(pose);
   
   optitrack_d = true;
 }
@@ -374,18 +253,7 @@ void optitrackDCallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 void optitrackECallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
 {
   
-  double sec = pose->header.stamp.sec;
-  double nsec = pose->header.stamp.nsec;
-  actual_optitrack_e.time = sec + (nsec / 1000000000) - init_time;
-
-  actual_optitrack_e.pose.position.x = pose->pose.position.x;
-  actual_optitrack_e.pose.position.y = pose->pose.position.y;
-  actual_optitrack_e.pose.position.z = pose->pose.position.z;
-
-  actual_optitrack_e.pose.orientation.x = pose->pose.orientation.x;
-  actual_optitrack_e.pose.orientation.y = pose->pose.orientation.y;
-  actual_optitrack_e.pose.orientation.z = pose->pose.orientation.z;
-  actual_optitrack_e.pose.orientation.w = pose->pose.orientation.w;
+  actual_optitrack_e = updatePositionOptitrack(pose);
   
   optitrack_e = true;
 }
@@ -398,33 +266,34 @@ int main(int argc, char **argv)
   ros::NodeHandle n;
 
   // PARAMS
-  n.getParam("pose_file_generator/pose_information", pose_information);
   n.getParam("pose_file_generator/get_odom", get_odom);
   n.getParam("pose_file_generator/get_amcl", get_amcl);
   n.getParam("pose_file_generator/get_optitrack", get_optitrack);
+  n.getParam("pose_file_generator/file_format", file_format);
 
   // SUBSCRIBERS
-  ros::Subscriber pose_a_sub = n.subscribe("/kobuki_a/odom", 1000, poseACallback);
-  ros::Subscriber pose_b_sub = n.subscribe("/kobuki_b/odom", 1000, poseBCallback);
-  ros::Subscriber pose_c_sub = n.subscribe("/kobuki_c/odom", 1000, poseCCallback);
-  ros::Subscriber pose_d_sub = n.subscribe("/kobuki_d/odom", 1000, poseDCallback);
-  ros::Subscriber pose_e_sub = n.subscribe("/kobuki_e/odom", 1000, poseECallback);
+  ros::Subscriber mission_sub = n.subscribe("/time_information", 10, timeInfoCallback);
 
-  ros::Subscriber amcl_a_sub = n.subscribe("/kobuki_a/amcl_pose", 1000, amclACallback);
-  ros::Subscriber amcl_b_sub = n.subscribe("/kobuki_b/amcl_pose", 1000, amclBCallback);
-  ros::Subscriber amcl_c_sub = n.subscribe("/kobuki_c/amcl_pose", 1000, amclCCallback);
-  ros::Subscriber amcl_d_sub = n.subscribe("/kobuki_d/amcl_pose", 1000, amclDCallback);
-  ros::Subscriber amcl_e_sub = n.subscribe("/kobuki_e/amcl_pose", 1000, amclECallback);
+  ros::Subscriber pose_a_sub = n.subscribe("/kobuki_a/odom", 10, poseACallback);
+  ros::Subscriber pose_b_sub = n.subscribe("/kobuki_b/odom", 10, poseBCallback);
+  ros::Subscriber pose_c_sub = n.subscribe("/kobuki_c/odom", 10, poseCCallback);
+  ros::Subscriber pose_d_sub = n.subscribe("/kobuki_d/odom", 10, poseDCallback);
+  ros::Subscriber pose_e_sub = n.subscribe("/kobuki_e/odom", 10, poseECallback);
 
-  ros::Subscriber optitrack_a_sub = n.subscribe("/optitrack/kobuki_a/pose", 1000, optitrackACallback);
-  ros::Subscriber optitrack_b_sub = n.subscribe("/optitrack/kobuki_b/pose", 1000, optitrackBCallback);
-  ros::Subscriber optitrack_c_sub = n.subscribe("/optitrack/kobuki_c/pose", 1000, optitrackCCallback);
-  ros::Subscriber optitrack_d_sub = n.subscribe("/optitrack/kobuki_d/pose", 1000, optitrackDCallback);
-  ros::Subscriber optitrack_e_sub = n.subscribe("/optitrack/kobuki_e/pose", 1000, optitrackECallback);
+  ros::Subscriber amcl_a_sub = n.subscribe("/kobuki_a/amcl_pose", 1, amclACallback);
+  ros::Subscriber amcl_b_sub = n.subscribe("/kobuki_b/amcl_pose", 1, amclBCallback);
+  ros::Subscriber amcl_c_sub = n.subscribe("/kobuki_c/amcl_pose", 1, amclCCallback);
+  ros::Subscriber amcl_d_sub = n.subscribe("/kobuki_d/amcl_pose", 1, amclDCallback);
+  ros::Subscriber amcl_e_sub = n.subscribe("/kobuki_e/amcl_pose", 1, amclECallback);
+
+  ros::Subscriber optitrack_a_sub = n.subscribe("/optitrack/kobuki_a/pose", 100, optitrackACallback);
+  ros::Subscriber optitrack_b_sub = n.subscribe("/optitrack/kobuki_b/pose", 100, optitrackBCallback);
+  ros::Subscriber optitrack_c_sub = n.subscribe("/optitrack/kobuki_c/pose", 100, optitrackCCallback);
+  ros::Subscriber optitrack_d_sub = n.subscribe("/optitrack/kobuki_d/pose", 100, optitrackDCallback);
+  ros::Subscriber optitrack_e_sub = n.subscribe("/optitrack/kobuki_e/pose", 100, optitrackECallback);
 
   folder_name = current_date();
        
-
   std::string directory = folder_direction + "/" + folder_name;
 
   /*std::string odom_type = "odom_";
@@ -432,6 +301,16 @@ int main(int argc, char **argv)
   std::string optitrack_type = "optitrack_";*/
 
   ros::Rate loop_rate(10);
+
+  std::string map_frame = "map";
+  std::string odom_frame = "odom";
+  std::string optitrack_frame = "optitrack";
+
+  std::string pikachu = "kobuki_a";
+  std::string bulbasaur = "kobuki_b";
+  std::string charmander = "kobuki_c";
+  std::string ditto = "kobuki_d";
+  std::string eevee = "kobuki_e";
 
   std::ofstream outfile_a;
   std::ofstream outfile_b;
@@ -450,6 +329,8 @@ int main(int argc, char **argv)
   std::ofstream outfile_c_optitrack;
   std::ofstream outfile_d_optitrack;
   std::ofstream outfile_e_optitrack;
+
+  std::ofstream outfile_mission;
 
   bool first_loop = true;
 
@@ -481,9 +362,6 @@ int main(int argc, char **argv)
 
     if(first_loop)
     {
-      init_time = ros::Time::now().toSec();
-      
-      printf("Init_time: %f", init_time);
 
       std::string mkdir_command = "mkdir -p ";
 
@@ -492,6 +370,16 @@ int main(int argc, char **argv)
       char_arr = &create_directory[0]; // str to char[]
   
       system(char_arr); // Creating a directory
+
+      create_directory.clear();
+      create_directory = mkdir_command + directory + "/" + mission_folder;
+
+      char_mission = &create_directory[0];
+
+      system(char_mission);
+
+      outfile_mission.open(directory + "/" + mission_folder + "/mission_log" + file_format, std::fstream::in | std::fstream::out | std::fstream::app);
+      outfile_mission << "%Task_ID, completion time" << std::endl;
 
       if(get_odom)
       {
@@ -528,140 +416,54 @@ int main(int argc, char **argv)
       }*/
 
 
-    } else {
+    } else if(start_mission){
 
       
+      if(task_end)
+      {
+        outfile_mission << std::to_string(aux_task_end.id_task) << ", " << std::to_string(aux_task_end.time_completion) << std::endl;
+        task_end = false;
+      }
+
       if(get_odom) // odometry
       {
         if(pose_a)
         {
-          if(open_a)
-          {
-            std::string file_name_a = directory + "/" + odom_folder + "/" + "kobuki_a.txt";
-            outfile_a.open(file_name_a, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_a << "  Time        X         Y         YAW" << std::endl;
-            open_a = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "kobuki_a/odom",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_pose_a.pose, actual_pose_a.pose, transformStamped);
-          outfile_a << std::to_string(actual_pose_a.time) << ", " << std::to_string(actual_pose_a.pose.position.x) << ", " << std::to_string(actual_pose_a.pose.position.y) << ", " << std::to_string(getYaw(actual_pose_a)) << std::endl;
+          
+          writeFile(true, actual_pose_a, &open_a, &outfile_a, &tfBuffer, &tfListener, directory + "/" + odom_folder + "/" + pikachu + file_format, map_frame, pikachu + "/" + odom_frame);
+          
           pose_a = false;
         }
 
         if(pose_b)
         {
-          if(open_b)
-          {
-            std::string file_name_b = directory + "/" + odom_folder + "/"  + "kobuki_b.txt";
-            outfile_b.open(file_name_b, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_b << "  Time        X         Y         YAW" << std::endl;
-            open_b = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "kobuki_b/odom",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_pose_b.pose, actual_pose_b.pose, transformStamped);
-          outfile_b << std::to_string(actual_pose_b.time) << ", " << std::to_string(actual_pose_b.pose.position.x) << ", " << std::to_string(actual_pose_b.pose.position.y) << ", " << std::to_string(getYaw(actual_pose_b)) << std::endl;
+          
+          writeFile(true, actual_pose_b, &open_b, &outfile_b, &tfBuffer, &tfListener, directory + "/" + odom_folder + "/" + bulbasaur + file_format, map_frame, bulbasaur + "/" + odom_frame);
+          
           pose_b = false;
         }
 
         if(pose_c)
         {
-          if(open_c)
-          {
-            std::string file_name_c = directory + "/" + odom_folder + "/"  + "kobuki_c.txt";
-            outfile_c.open(file_name_c, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_c << "  Time        X         Y         YAW" << std::endl;
-            open_c = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "kobuki_c/odom",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_pose_c.pose, actual_pose_c.pose, transformStamped);
-          outfile_c << std::to_string(actual_pose_c.time) << ", " << std::to_string(actual_pose_c.pose.position.x) << ", " << std::to_string(actual_pose_c.pose.position.y) << ", " << std::to_string(getYaw(actual_pose_c)) << std::endl;
+          
+          writeFile(true, actual_pose_c, &open_c, &outfile_c, &tfBuffer, &tfListener, directory + "/" + odom_folder + "/" + charmander + file_format, map_frame, charmander + "/" + odom_frame);
+          
           pose_c = false;
         }
 
         if(pose_d)
         {
-          if(open_d)
-          {
-            std::string file_name_d = directory + "/" + odom_folder + "/"  + "kobuki_d.txt";
-            outfile_d.open(file_name_d, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_d << "  Time        X         Y         YAW" << std::endl;
-            open_d = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "kobuki_d/odom",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_pose_d.pose, actual_pose_d.pose, transformStamped);
-
-          outfile_d << std::to_string(actual_pose_d.time) << ", " << std::to_string(actual_pose_d.pose.position.x) << ", " << std::to_string(actual_pose_d.pose.position.y) << ", " << std::to_string(getYaw(actual_pose_d)) << std::endl;
+          
+          writeFile(true, actual_pose_d, &open_d, &outfile_d, &tfBuffer, &tfListener, directory + "/" + odom_folder + "/" + ditto + file_format, map_frame, ditto + "/" + odom_frame);
+          
           pose_d = false;
         }
 
         if(pose_e)
         {
-          if(open_e)
-          {
-            std::string file_name_e = directory + "/" + odom_folder + "/"  + "kobuki_e.txt";
-            outfile_e.open(file_name_e, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_e << "  Time        X         Y         YAW" << std::endl;
-            open_e = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "kobuki_e/odom",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_pose_e.pose, actual_pose_e.pose, transformStamped);
-
-          outfile_e << std::to_string(actual_pose_e.time) << ", " << std::to_string(actual_pose_e.pose.position.x) << ", " << std::to_string(actual_pose_e.pose.position.y) << ", " << std::to_string(getYaw(actual_pose_e)) << std::endl;
+          
+          writeFile(true, actual_pose_e, &open_e, &outfile_e, &tfBuffer, &tfListener, directory + "/" + odom_folder + "/" + eevee + file_format, map_frame, eevee + "/" + odom_frame);
+          
           pose_e = false;
         }
 
@@ -670,66 +472,41 @@ int main(int argc, char **argv)
       {
         if(amcl_a)
         {
-          if(open_a_amcl)
-          {
-            std::string file_name_a = directory + "/" + amcl_folder + "/"  + "kobuki_a.txt";
-            outfile_a_amcl.open(file_name_a, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_a_amcl << "   Time        X         Y         YAW" << std::endl;
-            open_a_amcl = false;
-          }
-          outfile_a_amcl << std::to_string(actual_amcl_a.time) << ", " << std::to_string(actual_amcl_a.pose.position.x) << ", " << std::to_string(actual_amcl_a.pose.position.y) << ", " << std::to_string(getYaw(actual_amcl_a)) << std::endl;
+          
+          writeFile(false, actual_amcl_a, &open_a_amcl, &outfile_a_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + pikachu + file_format, "not_needed", "not_needed");
+          
           amcl_a = false;
         }
 
         if(amcl_b)
         {
-          if(open_b_amcl)
-          {
-            std::string file_name_b = directory + "/" + amcl_folder + "/"  + "kobuki_b.txt";
-            outfile_b_amcl.open(file_name_b, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_b_amcl << "   Time        X         Y         YAW" << std::endl;
-            open_b_amcl = false;
-          }
-          outfile_b_amcl << std::to_string(actual_amcl_b.time) << ", " << std::to_string(actual_amcl_b.pose.position.x) << ", " << std::to_string(actual_amcl_b.pose.position.y) << ", " << std::to_string(getYaw(actual_amcl_b)) << std::endl;
+          
+          writeFile(false, actual_amcl_b, &open_b_amcl, &outfile_b_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + bulbasaur + file_format, "not_needed", "not_needed");
+          
           amcl_b = false;
         }
 
         if(amcl_c)
         {
-          if(open_c_amcl)
-          {
-            std::string file_name_c = directory + "/" + amcl_folder + "/"  + "kobuki_c.txt";
-            outfile_c_amcl.open(file_name_c, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_c_amcl << "   Time        X         Y         YAW" << std::endl;
-            open_c_amcl = false;
-          }
-          outfile_c_amcl << std::to_string(actual_amcl_c.time) << ", " << std::to_string(actual_amcl_c.pose.position.x) << ", " << std::to_string(actual_amcl_c.pose.position.y) << ", " << std::to_string(getYaw(actual_amcl_c)) << std::endl;
+          
+          writeFile(false, actual_amcl_c, &open_c_amcl, &outfile_c_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + charmander + file_format, "not_needed", "not_needed");
+          
           amcl_c = false;
         }
 
         if(amcl_d)
         {
-          if(open_d_amcl)
-          {
-            std::string file_name_d = directory + "/" + amcl_folder + "/"  + "kobuki_d.txt";
-            outfile_d_amcl.open(file_name_d, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_d_amcl << "   Time        X         Y         YAW" << std::endl;
-            open_d_amcl = false;
-          }
-          outfile_d_amcl << std::to_string(actual_amcl_d.time) << ", " << std::to_string(actual_amcl_d.pose.position.x) << ", " << std::to_string(actual_amcl_d.pose.position.y) << ", " << std::to_string(getYaw(actual_amcl_d)) << std::endl;
+          
+          writeFile(false, actual_amcl_d, &open_d_amcl, &outfile_d_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + ditto + file_format, "not_needed", "not_needed");
+          
           amcl_d = false;
         }
 
         if(amcl_e)
         {
-          if(open_e_amcl)
-          {
-            std::string file_name_e = directory + "/" + amcl_folder + "/"  + "kobuki_e.txt";
-            outfile_e_amcl.open(file_name_e, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_e_amcl << "   Time        X         Y         YAW" << std::endl;
-            open_e_amcl = false;
-          }
-          outfile_e_amcl << std::to_string(actual_amcl_e.time) << ", " << std::to_string(actual_amcl_e.pose.position.x) << ", " << std::to_string(actual_amcl_e.pose.position.y) << ", " << std::to_string(getYaw(actual_amcl_e)) << std::endl;
+          
+          writeFile(false, actual_amcl_e, &open_e_amcl, &outfile_e_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + eevee + file_format, "not_needed", "not_needed");
+          
           amcl_e = false;
         }
 
@@ -738,136 +515,41 @@ int main(int argc, char **argv)
       {
         if(optitrack_a)
         {
-          if(open_a_optitrack)
-          {
-            std::string file_name_a = directory + "/" + optitrack_folder + "/"  + "kobuki_a.txt";
-            outfile_a_optitrack.open(file_name_a, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_a_optitrack << "  Time        X         Y         YAW" << std::endl;
-            open_a_optitrack = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "optitrack",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_optitrack_a.pose, actual_optitrack_a.pose, transformStamped);
-
-          outfile_a_optitrack << std::to_string(actual_optitrack_a.time) << ", " << std::to_string(actual_optitrack_a.pose.position.x) << ", " << std::to_string(actual_optitrack_a.pose.position.y) << ", " << std::to_string(getYaw(actual_optitrack_a)) << std::endl;
+          
+          writeFile(true, actual_optitrack_a, &open_a_optitrack, &outfile_a_optitrack, &tfBuffer, &tfListener, directory + "/" + optitrack_folder + "/" + pikachu + file_format, map_frame, optitrack_frame);
+          
           optitrack_a = false;
         }
 
         if(optitrack_b)
         {
-          if(open_b_optitrack)
-          {
-            std::string file_name_b = directory + "/" + optitrack_folder + "/"  + "kobuki_b.txt";
-            outfile_b_optitrack.open(file_name_b, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_b_optitrack << "  Time        X         Y         YAW" << std::endl;
-            open_b_optitrack = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "optitrack",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_optitrack_b.pose, actual_optitrack_b.pose, transformStamped);
-
-          outfile_b_optitrack << std::to_string(actual_optitrack_b.time) << ", " << std::to_string(actual_optitrack_b.pose.position.x) << ", " << std::to_string(actual_optitrack_b.pose.position.y) << ", " << std::to_string(getYaw(actual_optitrack_b)) << std::endl;
+          
+          writeFile(true, actual_optitrack_b, &open_b_optitrack, &outfile_b_optitrack, &tfBuffer, &tfListener, directory + "/" + optitrack_folder + "/" + bulbasaur + file_format, map_frame, optitrack_frame);
+          
           optitrack_b = false;
         }
 
         if(optitrack_c)
         {
-          if(open_c_optitrack)
-          {
-            std::string file_name_c = directory + "/" + optitrack_folder + "/"  + "kobuki_c.txt";
-            outfile_c_optitrack.open(file_name_c, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_c_optitrack << "  Time        X         Y         YAW" << std::endl;
-            open_c_optitrack = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "optitrack",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_optitrack_c.pose, actual_optitrack_c.pose, transformStamped);
-
-          outfile_c_optitrack << std::to_string(actual_optitrack_c.time) << ", " << std::to_string(actual_optitrack_c.pose.position.x) << ", " << std::to_string(actual_optitrack_c.pose.position.y) << ", " << std::to_string(getYaw(actual_optitrack_c)) << std::endl;
+          
+          writeFile(true, actual_optitrack_c, &open_c_optitrack, &outfile_c_optitrack, &tfBuffer, &tfListener, directory + "/" + optitrack_folder + "/" + charmander + file_format, map_frame, optitrack_frame);
+          
           optitrack_c = false;
         }
 
         if(optitrack_d)
         {
-          if(open_d_optitrack)
-          {
-            std::string file_name_d = directory + "/" + optitrack_folder + "/"  + "kobuki_d.txt";
-            outfile_d_optitrack.open(file_name_d, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_d_optitrack << "  Time        X         Y         YAW" << std::endl;
-            open_d_optitrack = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "optitrack",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_optitrack_d.pose, actual_optitrack_d.pose, transformStamped);
-
-          outfile_d_optitrack << std::to_string(actual_optitrack_d.time) << ", " << std::to_string(actual_optitrack_d.pose.position.x) << ", " << std::to_string(actual_optitrack_d.pose.position.y) << ", " << std::to_string(getYaw(actual_optitrack_d)) << std::endl;
+          
+          writeFile(true, actual_optitrack_d, &open_d_optitrack, &outfile_d_optitrack, &tfBuffer, &tfListener, directory + "/" + optitrack_folder + "/" + ditto + file_format, map_frame, optitrack_frame);
+          
           optitrack_d = false;
         }
 
         if(optitrack_e)
         {
-          if(open_e_optitrack)
-          {
-            std::string file_name_e = directory + "/" + optitrack_folder + "/"  + "kobuki_e.txt";
-            outfile_e_optitrack.open(file_name_e, std::fstream::in | std::fstream::out | std::fstream::app); // app -> open the file and set the cursor to the last position
-            outfile_e_optitrack << "  Time        X         Y         YAW" << std::endl;
-            open_e_optitrack = false;
-          }
-
-          geometry_msgs::TransformStamped transformStamped;
-          try{
-            transformStamped = tfBuffer.lookupTransform("map", "optitrack",ros::Time(0));
-          } catch(...){
-            printf("Can't transform\n");
-          }
-          /*printf("translation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n\n", transformStamped.transform.translation.x, transformStamped.transform.translation.y);
-
-          printf("rotation:\n");
-          printf("    x: %5.3f\n    y: %5.3f\n    z: %5.3f\n    w: %5.3f\n\n", transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z, transformStamped.transform.rotation.w);*/
-          tf2::doTransform(actual_optitrack_e.pose, actual_optitrack_e.pose, transformStamped);
-
-          outfile_e_optitrack << std::to_string(actual_optitrack_e.time) << ", " << std::to_string(actual_optitrack_e.pose.position.x) << ", " << std::to_string(actual_optitrack_e.pose.position.y) << ", " << std::to_string(getYaw(actual_optitrack_e)) << std::endl;
+          
+          writeFile(true, actual_optitrack_e, &open_e_optitrack, &outfile_e_optitrack, &tfBuffer, &tfListener, directory + "/" + optitrack_folder + "/" + eevee + file_format, map_frame, optitrack_frame);
+          
           optitrack_e = false;
         }
 
@@ -923,4 +605,105 @@ std::string current_date(){
     date = std::to_string(1900 + ltm->tm_year) + "-" + std::to_string(1 + ltm->tm_mon) + "-" + std::to_string(ltm->tm_mday) + "_" + std::to_string(ltm->tm_hour) + ":" + std::to_string(ltm->tm_min);
     //ltm->tm_sec //if we want the seconds
     return date;
+}
+
+void writeFile(bool need_transform, Pose actual_pose, bool* open_file, std::ofstream* outfile, tf2_ros::Buffer* tfBuffer, tf2_ros::TransformListener* tfListener/*(tf2_ros::Buffer* tfBuffer)*/, std::string file_name, std::string map_frame, std::string loc_frame)
+{
+  double time_aux = 0.0;
+  if(*open_file)
+  {
+    //printf("Capçalera, init_time: %f\n", init_time);
+    outfile->open(file_name, std::fstream::in | std::fstream::out | std::fstream::app);
+    *outfile << "%Time, X, Y, YAW" << std::endl;
+    *open_file = false;
+  }
+
+  if(need_transform)
+  {
+    geometry_msgs::TransformStamped transformStamped;
+    try{
+      transformStamped = tfBuffer->lookupTransform(map_frame, loc_frame, ros::Time(0));
+    } catch(...){
+      printf("Can't transform\n");
+    }
+    //printf("Escric, init_time: %f\n", init_time);
+    tf2::doTransform(actual_pose.pose, actual_pose.pose, transformStamped);
+  }
+
+
+  if(actual_pose.time - init_time > 0.0)
+  {
+    time_aux = actual_pose.time - init_time;
+  }
+  
+  *outfile << std::to_string(time_aux) << ", " << std::to_string(actual_pose.pose.position.x) << ", " << std::to_string(actual_pose.pose.position.y) << ", " << std::to_string(getYaw(actual_pose)) << std::endl;
+  
+}
+
+Pose updatePosition(const nav_msgs::Odometry::ConstPtr& pose)
+{
+
+  Pose actual_pose_aux;
+
+  double sec = pose->header.stamp.sec;
+  double nsec = pose->header.stamp.nsec;
+  //printf("                odom time -> sec: %f nsec: %f, init_time: %f\n", sec, nsec, init_time);
+  actual_pose_aux.time = sec + (nsec / 1000000000.0);
+
+  actual_pose_aux.pose.position.x = pose->pose.pose.position.x;
+  actual_pose_aux.pose.position.y = pose->pose.pose.position.y;
+  actual_pose_a.pose.position.z = pose->pose.pose.position.z;
+
+  actual_pose_aux.pose.orientation.x = pose->pose.pose.orientation.x;
+  actual_pose_aux.pose.orientation.y = pose->pose.pose.orientation.y;
+  actual_pose_aux.pose.orientation.z = pose->pose.pose.orientation.z;
+  actual_pose_aux.pose.orientation.w = pose->pose.pose.orientation.w;
+
+  return actual_pose_aux;
+
+}
+
+Pose updatePositionAMCL(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose)
+{
+
+  Pose actual_amcl_aux;
+
+  double sec = pose->header.stamp.sec;
+  double nsec = pose->header.stamp.nsec;
+  //printf("                amcl time -> sec: %f nsec: %f, init_time: %f\n", sec, nsec, init_time);
+  actual_amcl_aux.time = sec + (nsec / 1000000000.0);
+
+  actual_amcl_aux.pose.position.x = pose->pose.pose.position.x;
+  actual_amcl_aux.pose.position.y = pose->pose.pose.position.y;
+  actual_amcl_aux.pose.position.z = pose->pose.pose.position.z;
+
+  actual_amcl_aux.pose.orientation.x = pose->pose.pose.orientation.x;
+  actual_amcl_aux.pose.orientation.y = pose->pose.pose.orientation.y;
+  actual_amcl_aux.pose.orientation.z = pose->pose.pose.orientation.z;
+  actual_amcl_aux.pose.orientation.w = pose->pose.pose.orientation.w;
+
+  return actual_amcl_aux;
+
+}
+
+Pose updatePositionOptitrack(const geometry_msgs::PoseStamped::ConstPtr& pose)
+{
+
+  Pose actual_optitrack_aux;
+
+  double sec = pose->header.stamp.sec;
+  double nsec = pose->header.stamp.nsec;
+  actual_optitrack_aux.time = sec + (nsec / 1000000000.0);
+
+  actual_optitrack_aux.pose.position.x = pose->pose.position.x;
+  actual_optitrack_aux.pose.position.y = pose->pose.position.y;
+  actual_optitrack_aux.pose.position.z = pose->pose.position.z;
+
+  actual_optitrack_aux.pose.orientation.x = pose->pose.orientation.x;
+  actual_optitrack_aux.pose.orientation.y = pose->pose.orientation.y;
+  actual_optitrack_aux.pose.orientation.z = pose->pose.orientation.z;
+  actual_optitrack_aux.pose.orientation.w = pose->pose.orientation.w;
+
+  return actual_optitrack_aux;
+
 }
