@@ -40,6 +40,9 @@ struct Pose {
 struct TaskEnd {
   int id_task;
   double time_completion;
+  float deadline;
+  float utility_max;
+  uint8_t total_ports;
 };
 
 // ODOM
@@ -127,12 +130,15 @@ void timeInfoCallback(const fuzzymar_multi_robot::time_task::ConstPtr& msg)
   if(msg->id_task == 0)
   {
     init_time = msg->sec + (msg->nsec/1000000000.0);
-    printf("Mission starts at: %f\n", init_time);
+    //printf("Mission starts at: %f\n", init_time);
     start_mission = true;
   } else {
-    printf("Task_%i finish at sec: %f nsec: %f\n", msg->id_task, double(msg->sec), double(msg->nsec));
+    //printf("Task_%i finish at sec: %f nsec: %f\n", msg->id_task, double(msg->sec), double(msg->nsec));
     aux_task_end.id_task = msg->id_task;
     aux_task_end.time_completion = (msg->sec + (msg->nsec/1000000000.0)) - init_time;
+    aux_task_end.deadline = msg->deadline;
+    aux_task_end.utility_max = msg->utility_max;
+    aux_task_end.total_ports = msg->total_ports;
     task_end = true;
   }
 
@@ -379,7 +385,7 @@ int main(int argc, char **argv)
       system(char_mission);
 
       outfile_mission.open(directory + "/" + mission_folder + "/mission_log" + file_format, std::fstream::in | std::fstream::out | std::fstream::app);
-      outfile_mission << "%Task_ID, completion time" << std::endl;
+      outfile_mission << "%Task_ID, completion time, deadline, U_max, total_ports" << std::endl;
 
       if(get_odom)
       {
@@ -421,7 +427,7 @@ int main(int argc, char **argv)
       
       if(task_end)
       {
-        outfile_mission << std::to_string(aux_task_end.id_task) << ", " << std::to_string(aux_task_end.time_completion) << std::endl;
+        outfile_mission << std::to_string(aux_task_end.id_task) << ", " << std::to_string(aux_task_end.time_completion) << ", " << std::to_string(aux_task_end.deadline) << ", " << std::to_string(aux_task_end.utility_max) << ", " << std::to_string(aux_task_end.total_ports) << std::endl;
         task_end = false;
       }
 
