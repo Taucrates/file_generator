@@ -11,6 +11,7 @@
 #include "geometry_msgs/PoseWithCovarianceStamped.h"
 
 #include <fuzzymar_multi_robot/time_task.h>
+#include <fuzzymar_multi_robot/robotParameters.h>
 
 #include <tf2_ros/transform_listener.h> 
 #include <tf2_ros/buffer.h> 
@@ -44,6 +45,8 @@ struct TaskEnd {
   float utility_max;
   uint8_t total_ports;
 };
+
+std::vector<TaskEnd> task_end_vector;
 
 // ODOM
 Pose actual_pose_a;
@@ -106,7 +109,9 @@ char* char_mission;
 double init_time;
 bool start_mission = false;
 bool task_end = false;
-TaskEnd aux_task_end;
+
+std::vector<fuzzymar_multi_robot::robotParameters> rob_param_vec;
+bool robot_param_received = false;
 
 std::string folder_direction = "/home/tonitauler/catkin_ws/src/file_generator/data";
 std::string folder_name = "pere";
@@ -126,7 +131,9 @@ Pose updatePositionOptitrack(const geometry_msgs::PoseStamped::ConstPtr& pose);
 
 void timeInfoCallback(const fuzzymar_multi_robot::time_task::ConstPtr& msg)
 {
- 
+  
+  TaskEnd aux_task_end;
+
   if(msg->id_task == 0)
   {
     init_time = msg->sec + (msg->nsec/1000000000.0);
@@ -139,6 +146,9 @@ void timeInfoCallback(const fuzzymar_multi_robot::time_task::ConstPtr& msg)
     aux_task_end.deadline = msg->deadline;
     aux_task_end.utility_max = msg->utility_max;
     aux_task_end.total_ports = msg->total_ports;
+
+    task_end_vector.push_back(aux_task_end);
+
     task_end = true;
   }
 
@@ -264,6 +274,22 @@ void optitrackECallback(const geometry_msgs::PoseStamped::ConstPtr& pose)
   optitrack_e = true;
 }
 
+void robParamCallback(const fuzzymar_multi_robot::robotParameters::ConstPtr& msg)
+{
+  fuzzymar_multi_robot::robotParameters rob_param_aux;
+
+  rob_param_aux.id_robot = msg->id_robot;
+  rob_param_aux.max_vel = msg->max_vel;
+  rob_param_aux.UDD_factor = msg->UDD_factor;
+  rob_param_aux.alpha_utility = msg->alpha_utility;
+  rob_param_aux.beta_distance = msg->beta_distance;
+  rob_param_aux.gamma_ports = msg->gamma_ports;
+  rob_param_aux.selection_task = msg->selection_task;
+
+  rob_param_vec.push_back(rob_param_aux);
+
+}
+
 int main(int argc, char **argv)
 {
 
@@ -297,6 +323,8 @@ int main(int argc, char **argv)
   ros::Subscriber optitrack_c_sub = n.subscribe("/optitrack/kobuki_c/pose", 100, optitrackCCallback);
   ros::Subscriber optitrack_d_sub = n.subscribe("/optitrack/kobuki_d/pose", 100, optitrackDCallback);
   ros::Subscriber optitrack_e_sub = n.subscribe("/optitrack/kobuki_e/pose", 100, optitrackECallback);
+
+  ros::Subscriber rob_param_sub = n.subscribe("/rob_parameters_info", 10, robParamCallback);
 
   folder_name = current_date();
        
@@ -337,6 +365,7 @@ int main(int argc, char **argv)
   std::ofstream outfile_e_optitrack;
 
   std::ofstream outfile_mission;
+  std::ofstream outfile_rob_param;
 
   bool first_loop = true;
 
@@ -363,6 +392,8 @@ int main(int argc, char **argv)
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener(tfBuffer);
 
+  int count_end_task = 0;
+
   while (ros::ok())
   {
 
@@ -385,7 +416,10 @@ int main(int argc, char **argv)
       system(char_mission);
 
       outfile_mission.open(directory + "/" + mission_folder + "/mission_log" + file_format, std::fstream::in | std::fstream::out | std::fstream::app);
-      outfile_mission << "%Task_ID, completion time, deadline, U_max, total_ports" << std::endl;
+      outfile_mission << "Task_ID,completion time,deadline,U_max,total_ports" << std::endl;
+
+      outfile_rob_param.open(directory + "/" + mission_folder + "/robots_log" + file_format, std::fstream::in | std::fstream::out | std::fstream::app);
+      outfile_rob_param << "Robot_ID,max_vel,UDD_factor,alpha_utility,beta_distance,gamma_ports,selection_task" << std::endl;
 
       if(get_odom)
       {
@@ -427,8 +461,15 @@ int main(int argc, char **argv)
       
       if(task_end)
       {
-        outfile_mission << std::to_string(aux_task_end.id_task) << ", " << std::to_string(aux_task_end.time_completion) << ", " << std::to_string(aux_task_end.deadline) << ", " << std::to_string(aux_task_end.utility_max) << ", " << std::to_string(aux_task_end.total_ports) << std::endl;
+        /*
+        outfile_mission << std::to_string(aux_task_end.id_task) << "," << std::to_string(aux_task_end.time_completion) << "," << std::to_string(aux_task_end.deadline) << "," << std::to_string(aux_task_end.utility_max) << "," << std::to_string(aux_task_end.total_ports) << std::endl;
+        task_end = false;*/
+        for(count_end_task ; count_end_task < task_end_vector.size() ; count_end_task++)
+        {
+          outfile_mission << std::to_string(task_end_vector[count_end_task].id_task) << "," << std::to_string(task_end_vector[count_end_task].time_completion) << "," << std::to_string(task_end_vector[count_end_task].deadline) << "," << std::to_string(task_end_vector[count_end_task].utility_max) << "," << std::to_string(task_end_vector[count_end_task].total_ports) << std::endl;
+        }
         task_end = false;
+        
       }
 
       if(get_odom) // odometry
@@ -479,7 +520,7 @@ int main(int argc, char **argv)
         if(amcl_a)
         {
           
-          writeFile(false, actual_amcl_a, &open_a_amcl, &outfile_a_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + pikachu + file_format, "not_needed", "not_needed");
+          writeFile(false, actual_amcl_a, &open_a_amcl, &outfile_a_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + pikachu + file_format, "not_needed","not_needed");
           
           amcl_a = false;
         }
@@ -487,7 +528,7 @@ int main(int argc, char **argv)
         if(amcl_b)
         {
           
-          writeFile(false, actual_amcl_b, &open_b_amcl, &outfile_b_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + bulbasaur + file_format, "not_needed", "not_needed");
+          writeFile(false, actual_amcl_b, &open_b_amcl, &outfile_b_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + bulbasaur + file_format, "not_needed","not_needed");
           
           amcl_b = false;
         }
@@ -495,7 +536,7 @@ int main(int argc, char **argv)
         if(amcl_c)
         {
           
-          writeFile(false, actual_amcl_c, &open_c_amcl, &outfile_c_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + charmander + file_format, "not_needed", "not_needed");
+          writeFile(false, actual_amcl_c, &open_c_amcl, &outfile_c_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + charmander + file_format, "not_needed","not_needed");
           
           amcl_c = false;
         }
@@ -503,7 +544,7 @@ int main(int argc, char **argv)
         if(amcl_d)
         {
           
-          writeFile(false, actual_amcl_d, &open_d_amcl, &outfile_d_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + ditto + file_format, "not_needed", "not_needed");
+          writeFile(false, actual_amcl_d, &open_d_amcl, &outfile_d_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + ditto + file_format, "not_needed","not_needed");
           
           amcl_d = false;
         }
@@ -511,7 +552,7 @@ int main(int argc, char **argv)
         if(amcl_e)
         {
           
-          writeFile(false, actual_amcl_e, &open_e_amcl, &outfile_e_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + eevee + file_format, "not_needed", "not_needed");
+          writeFile(false, actual_amcl_e, &open_e_amcl, &outfile_e_amcl, &tfBuffer, &tfListener, directory + "/" + amcl_folder + "/" + eevee + file_format, "not_needed","not_needed");
           
           amcl_e = false;
         }
@@ -588,6 +629,17 @@ int main(int argc, char **argv)
   outfile_d_optitrack.close();
   outfile_e_optitrack.close();
 
+  for(int i = 0 ; i < rob_param_vec.size() ; i++)
+  {
+
+    outfile_rob_param << std::to_string(rob_param_vec[i].id_robot) << "," << std::to_string(rob_param_vec[i].max_vel) << "," << std::to_string(rob_param_vec[i].UDD_factor) << "," << std::to_string(rob_param_vec[i].alpha_utility) << "," << std::to_string(rob_param_vec[i].beta_distance) << "," << std::to_string(rob_param_vec[i].gamma_ports) << "," << rob_param_vec[i].selection_task  << std::endl; 
+
+  }
+
+  outfile_mission.close();
+  outfile_rob_param.close();
+       
+
   return 0;
 }
 
@@ -620,7 +672,7 @@ void writeFile(bool need_transform, Pose actual_pose, bool* open_file, std::ofst
   {
     //printf("Capçalera, init_time: %f\n", init_time);
     outfile->open(file_name, std::fstream::in | std::fstream::out | std::fstream::app);
-    *outfile << "%Time, X, Y, YAW" << std::endl;
+    *outfile << "Time,X,Y,YAW" << std::endl;
     *open_file = false;
   }
 
@@ -642,7 +694,7 @@ void writeFile(bool need_transform, Pose actual_pose, bool* open_file, std::ofst
     time_aux = actual_pose.time - init_time;
   }
   
-  *outfile << std::to_string(time_aux) << ", " << std::to_string(actual_pose.pose.position.x) << ", " << std::to_string(actual_pose.pose.position.y) << ", " << std::to_string(getYaw(actual_pose)) << std::endl;
+  *outfile << std::to_string(time_aux) << "," << std::to_string(actual_pose.pose.position.x) << "," << std::to_string(actual_pose.pose.position.y) << "," << std::to_string(getYaw(actual_pose)) << std::endl;
   
 }
 
