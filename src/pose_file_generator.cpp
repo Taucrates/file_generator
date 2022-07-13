@@ -285,6 +285,14 @@ void robParamCallback(const fuzzymar_multi_robot::robotParameters::ConstPtr& msg
   rob_param_aux.beta_distance = msg->beta_distance;
   rob_param_aux.gamma_ports = msg->gamma_ports;
   rob_param_aux.selection_task = msg->selection_task;
+  rob_param_aux.calc_stim_time = msg->calc_stim_time;
+  rob_param_aux.calc_stim_way = msg->calc_stim_way;
+  rob_param_aux.sdl_method = msg->sdl_method;
+  rob_param_aux.agregation_type = msg->agregation_type;
+  rob_param_aux.w1 = msg->w1;
+  rob_param_aux.w2 = msg->w2;
+  rob_param_aux.w3 = msg->w3;
+
 
   rob_param_vec.push_back(rob_param_aux);
 
@@ -419,7 +427,7 @@ int main(int argc, char **argv)
       outfile_mission << "Task_ID,completion time,deadline,U_max,total_ports" << std::endl;
 
       outfile_rob_param.open(directory + "/" + mission_folder + "/robots_log" + file_format, std::fstream::in | std::fstream::out | std::fstream::app);
-      outfile_rob_param << "Robot_ID,max_vel,UDD_factor,alpha_utility,beta_distance,gamma_ports,selection_task" << std::endl;
+      outfile_rob_param << "Robot_ID,max_vel,UDD_factor,alpha_utility,beta_distance,gamma_ports,selection_task,calc_stim_time,calc_stim_way,sdl_method,agregation_type,w1,w2,w3" << std::endl;
 
       if(get_odom)
       {
@@ -469,7 +477,7 @@ int main(int argc, char **argv)
           outfile_mission << std::to_string(task_end_vector[count_end_task].id_task) << "," << std::to_string(task_end_vector[count_end_task].time_completion) << "," << std::to_string(task_end_vector[count_end_task].deadline) << "," << std::to_string(task_end_vector[count_end_task].utility_max) << "," << std::to_string(task_end_vector[count_end_task].total_ports) << std::endl;
         }
         task_end = false;
-        
+
       }
 
       if(get_odom) // odometry
@@ -632,7 +640,7 @@ int main(int argc, char **argv)
   for(int i = 0 ; i < rob_param_vec.size() ; i++)
   {
 
-    outfile_rob_param << std::to_string(rob_param_vec[i].id_robot) << "," << std::to_string(rob_param_vec[i].max_vel) << "," << std::to_string(rob_param_vec[i].UDD_factor) << "," << std::to_string(rob_param_vec[i].alpha_utility) << "," << std::to_string(rob_param_vec[i].beta_distance) << "," << std::to_string(rob_param_vec[i].gamma_ports) << "," << rob_param_vec[i].selection_task  << std::endl; 
+    outfile_rob_param << std::to_string(rob_param_vec[i].id_robot) << "," << std::to_string(rob_param_vec[i].max_vel) << "," << std::to_string(rob_param_vec[i].UDD_factor) << "," << std::to_string(rob_param_vec[i].alpha_utility) << "," << std::to_string(rob_param_vec[i].beta_distance) << "," << std::to_string(rob_param_vec[i].gamma_ports) << "," << rob_param_vec[i].selection_task << "," << std::to_string(rob_param_vec[i].calc_stim_time) << "," << std::to_string(rob_param_vec[i].calc_stim_way) << "," << std::to_string(rob_param_vec[i].sdl_method) << "," << std::to_string(rob_param_vec[i].agregation_type) << "," << std::to_string(rob_param_vec[i].w1) << "," << std::to_string(rob_param_vec[i].w2) << "," << std::to_string(rob_param_vec[i].w3)  << std::endl; 
 
   }
 
