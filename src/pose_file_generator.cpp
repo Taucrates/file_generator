@@ -113,7 +113,7 @@ bool task_end = false;
 std::vector<fuzzymar_multi_robot::robotParameters> rob_param_vec;
 bool robot_param_received = false;
 
-std::string folder_direction = "/home/tonitauler/catkin_ws/src/file_generator/data";
+std::string folder_direction = "/home/tonitauler/ROS/kobuki_ws/src/file_generator/data";
 std::string folder_name = "pere";
 std::string odom_folder = "odom";
 std::string amcl_folder = "amcl";
